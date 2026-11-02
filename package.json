@@ -1,0 +1,15 @@
+{
+  "name": "devpilot-netlify-n8n",
+  "version": "1.0.3",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "dev": "npx netlify-cli dev",
+    "deploy": "npx netlify-cli deploy --build --prod",
+    "build": "node scripts/build.mjs && npm test"
+  }
+}
