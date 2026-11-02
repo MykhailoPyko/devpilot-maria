@@ -1,6 +1,7 @@
 (()=>{'use strict';
 const $=s=>document.querySelector(s),messages=$('.messages'),options=$('.chat-options'),input=$('#chat-input'),review=$('.lead-review'),consent=$('#lead-consent'),submit=$('.submit-lead'),errorBox=$('.chat-error');
-let state='',busy=false,started=false,saved=false,turns=0,lead={},retryAction=null;
+const API='https://mikhailpp.app.n8n.cloud/webhook/devpilot-maria';
+let history=[],leadId=crypto.randomUUID(),busy=false,started=false,saved=false,turns=0,lead={},retryAction=null;
 const popup=$('.assistant-nudge');let timer,closeTimer,shown=false;
 const reducedMotion=()=>window.matchMedia('(prefers-reduced-motion:reduce)').matches;
 function finishDismiss(){popup.hidden=true;popup.classList.remove('is-leaving');popup.inert=false;clearTimeout(closeTimer)}
@@ -20,13 +21,22 @@ function showError(message,action){errorBox.replaceChildren();const p=document.c
 async function request(action){
  if(busy||saved)return;errorBox.hidden=true;setBusy(true);review.hidden=true;
  const typing=document.createElement('div');typing.className='bubble bot typing';typing.setAttribute('aria-label','Марія готує відповідь');typing.innerHTML='<span></span><span></span><span></span>';messages.appendChild(typing);messages.scrollTop=messages.scrollHeight;
- try{const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...action,state}),signal:AbortSignal.timeout(50000)});const data=await response.json().catch(()=>({error:'Сервіс тимчасово недоступний.'}));if(!response.ok)throw Object.assign(new Error(data.error||'Забагато запитів. Спробуйте за хвилину.'),{status:response.status});if(typeof data.reply!=='string')throw Error('Некоректна відповідь сервера.');
- typing.remove();say(data.reply);retryAction=null;if(data.saved){saved=true;review.hidden=true;input.placeholder='Заявку надіслано. Дякуємо!';options.replaceChildren()}else{state=data.state;lead=data.lead||{};turns++;options.replaceChildren();renderReview();input.placeholder='Напишіть повідомлення…'}
+ try{
+ if(action.action==='chat'&&turns>=30){const l=new Error('Досягнуто ліміт розмови. Можна надіслати готову заявку або почати нову.');l.status=429;throw l}
+ const payload=action.action==='chat'?{action:'chat',message:action.message,history,lead,requestId:leadId}:{action:'submit',consent:true,lead,requestId:leadId};
+ const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(50000)});
+ const data=await response.json().catch(()=>({ok:false}));
+ if(!response.ok||data.ok!==true)throw Object.assign(new Error('Сервіс тимчасово недоступний. Спробуйте ще раз.'),{status:response.status});
+ if(action.action==='submit'){if(data.saved!==true||data.leadId!==leadId)throw Error('Немає підтвердження збереження. Спробуйте ще раз.');typing.remove();say('Дякую! Заявку збережено. Команда зв’яжеться з вами за вказаним контактом.');retryAction=null;saved=true;review.hidden=true;input.placeholder='Заявку надіслано. Дякуємо!';options.replaceChildren()}
+ else{if(typeof data.reply!=='string'||!data.lead)throw Error('Некоректна відповідь сервера.');typing.remove();say(data.reply);retryAction=null;
+  history=[...history,{role:'user',content:action.message},{role:'assistant',content:data.reply}].slice(-20);
+  const next={name:data.lead.name||'',task:data.lead.task||'',contact:data.lead.contact||''};if(JSON.stringify(next)!==JSON.stringify({name:lead.name||'',task:lead.task||'',contact:lead.contact||''}))leadId=crypto.randomUUID();
+  lead=next;turns++;options.replaceChildren();renderReview();input.placeholder='Напишіть повідомлення…'}
  }catch(e){typing.remove();if(e.status===409){errorBox.textContent='Сеанс завершився. Натисніть ↺, щоб почати нову розмову.';errorBox.hidden=false;retryAction=null}else showError(e.name==='TimeoutError'?'Відповідь затримується. Можна повторити запит.':e.message,action);if(action.action==='submit')review.hidden=false;
  }finally{setBusy(false)}
 }
 function send(text){text=text.trim();if(!text||busy||saved)return;started=true;dismiss();if(text.length>1200)return;retryAction=null;errorBox.hidden=true;input.value='';say(text,'user');request({action:'chat',message:text})}
-function reset(){if(busy)return;if(turns&&!saved&&!confirm('Почати нову розмову? Незбережені дані поточного діалогу буде очищено.'))return;state='';lead={};saved=false;turns=0;messages.replaceChildren();errorBox.hidden=true;review.hidden=true;input.value='';input.placeholder='Що ви хочете зробити?';setBusy(false);say('Привіт! Я Марія, AI-консультантка. Яку задачу хочете вирішити? Якщо вже визначилися, можете одразу написати задачу, ім’я та один контакт для зв’язку.');quickChoices()}
+function reset(){if(busy)return;if(turns&&!saved&&!confirm('Почати нову розмову? Незбережені дані поточного діалогу буде очищено.'))return;history=[];leadId=crypto.randomUUID();lead={};saved=false;turns=0;messages.replaceChildren();errorBox.hidden=true;review.hidden=true;input.value='';input.placeholder='Що ви хочете зробити?';setBusy(false);say('Привіт! Я Марія, AI-консультантка. Яку задачу хочете вирішити? Якщо вже визначилися, можете одразу написати задачу, ім’я та один контакт для зв’язку.');quickChoices()}
 $('.chat-form').addEventListener('submit',e=>{e.preventDefault();send(input.value)});$('.reset-chat').addEventListener('click',reset);input.addEventListener('focus',()=>{started=true;dismiss()});consent.addEventListener('change',()=>{submit.disabled=busy||!consent.checked||saved});submit.addEventListener('click',()=>{if(!busy&&consent.checked)request({action:'submit',consent:true})});
 document.querySelectorAll('[data-product]').forEach(b=>b.addEventListener('click',()=>{window.DevPilotNavigation.go(2);if(!busy&&!saved)send(`Мене цікавить ${b.dataset.product.toLowerCase()}.`)}));
 reset();schedule();
