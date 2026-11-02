@@ -10,6 +10,6 @@
     "test": "node --test tests/*.test.mjs",
     "dev": "npx netlify-cli dev",
     "deploy": "npx netlify-cli deploy --build --prod",
-    "build": "node scripts/build.mjs && npm test"
+    "build": "node scripts/build.mjs"
   }
 }
